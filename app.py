@@ -21,7 +21,7 @@ except Exception:  # pydeck normalmente já vem com o Streamlit
 # ----------------------------------------------------------------------------
 # CONFIGURAÇÃO (edite aqui)
 # ----------------------------------------------------------------------------
-FORM_URL = ""  # cole o link do Google Forms de feedback anônimo (validação)
+FORM_URL = "https://forms.gle/VjkMS8Sftw37BKpA6"  # formulário de feedback anônimo (validação)
 INFOSAUDE_UBS_URL = "http://info.saude.df.gov.br/saude-docidadao/cidadao-ubs-unidades-basicas-de-saude/"
 DATA_PATH = Path(__file__).parent / "data" / "servicos.csv"
 
@@ -43,6 +43,7 @@ RA_COORDS = {
     "Riacho Fundo": (-15.8790, -48.0190),
     "Núcleo Bandeirante": (-15.8700, -47.9680),
     "Itapoã": (-15.7450, -47.7660),
+    "Cruzeiro": (-15.7900, -47.9400),
     "Guará": (-15.8260, -47.9790),
     "Águas Claras": (-15.8390, -48.0270),
     "Brazlândia": (-15.6700, -48.2000),
@@ -52,13 +53,13 @@ RA_COORDS = {
 COR_TIPO = {
     "UBS": [52, 211, 153],
     "CAPS": [139, 92, 246],
-    "CAPS III (24h)": [109, 40, 217],
+    "CAPS III": [109, 40, 217],
     "CAPS i (infantojuvenil)": [168, 85, 247],
     "Ambulatório para adolescentes": [96, 165, 250],
     "Urgência psiquiátrica": [244, 63, 94],
     "Hospital Dia (IST/HIV e transexualidade)": [251, 191, 36],
     "CAPS AD (álcool e drogas)": [99, 102, 241],
-    "CAPS AD III (24h)": [67, 56, 202],
+    "CAPS AD III": [67, 56, 202],
     "Atendimento a vítimas de violência": [236, 72, 153],
 }
 
@@ -74,8 +75,9 @@ O_QUE_E = {
         "incluindo necessidades ligadas a álcool e outras drogas. Recebe quem chega por conta própria "
         "ou encaminhado. O ideal é procurar o CAPS da sua região."
     ),
-    "CAPS III (24h)": (
-        "CAPS que funciona 24 horas, inclusive feriados e fins de semana, com acolhimento noturno. "
+    "CAPS III": (
+        "Modalidade de CAPS que a Carta de Serviços descreve como de funcionamento 24 horas, com acolhimento noturno. "
+        "O horário pode variar por unidade, então confirme antes de ir. "
         "Atende maiores de 18 anos em intenso sofrimento psíquico."
     ),
     "CAPS i (infantojuvenil)": (
@@ -92,9 +94,10 @@ O_QUE_E = {
         "CAPS voltado a pessoas maiores de 16 anos com sofrimento intenso decorrente do uso prejudicial "
         "de álcool e outras drogas. Aceita procura direta ou encaminhamento."
     ),
-    "CAPS AD III (24h)": (
-        "CAPS AD que funciona 24 horas, com acolhimento noturno, para pessoas maiores de 16 anos "
-        "com sofrimento intenso ligado ao uso de álcool e outras drogas."
+    "CAPS AD III": (
+        "Modalidade de CAPS AD descrita como de funcionamento 24 horas, com acolhimento noturno, para pessoas "
+        "maiores de 16 anos com sofrimento intenso ligado ao uso de álcool e outras drogas. "
+        "Confirme o horário da unidade antes de ir."
     ),
     "Atendimento a vítimas de violência": (
         "Atendimento multiprofissional a pessoas em situação de violência. Para mulheres, atendimento "
@@ -300,7 +303,7 @@ MISSOES = [
             ("Mandar ele conversar com uma IA e ficar tranquilo.", False,
              "Uma IA não substitui uma pessoa ao lado nem o atendimento de urgência."),
         ],
-        "aprendizado": "Risco imediato: 192 (SAMU) ou 190. Apoio emocional 24h: 188 (CVV). CAPS III funciona 24h.",
+        "aprendizado": "Risco imediato: 192 (SAMU) ou 190. Apoio emocional 24h: 188 (CVV). Alguns CAPS III funcionam 24h; confirme o horário da unidade.",
     },
     {
         "id": "m5",
@@ -390,7 +393,7 @@ def pagina_ajuda():
     st.success(
         "### Preciso de atendimento de saúde mental\n"
         "- **Hospital São Vicente de Paulo** (Taguatinga Sul): urgência em psiquiatria. Tel.: (61) 2017-1093.\n"
-        "- **CAPS III e CAPS AD III** funcionam **24 horas**, procure o da sua região.\n"
+        "- Alguns **CAPS III e CAPS AD III** funcionam **24 horas**. Confirme o horário da unidade da sua região.\n"
         "- **Sem urgência?** Procure a **UBS** do seu bairro, onde o acolhimento é garantido.\n"
     )
     st.caption(

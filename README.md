@@ -11,7 +11,7 @@
 ![Licença](https://img.shields.io/badge/licença-MIT-8B5CF6)
 ![Status](https://img.shields.io/badge/status-protótipo%20acadêmico-06B6D4)
 
-🔗 **Demo online:** _(link a ser adicionado após a publicação)_
+🔗 [**Demo online:**](https://pe-caminhos-do-cuidado-df-4ahth5kvdyeahzum963zry.streamlit.app/)
 
 </div>
 

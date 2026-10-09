@@ -15,10 +15,10 @@ COLUNAS = [
 ]
 STATUS_VALIDOS = {"verificado", "confirmar"}
 TIPOS_VALIDOS = {
-    "UBS", "CAPS", "CAPS III (24h)", "CAPS i (infantojuvenil)",
+    "UBS", "CAPS", "CAPS III", "CAPS i (infantojuvenil)",
     "Ambulatório para adolescentes", "Urgência psiquiátrica",
     "Hospital Dia (IST/HIV e transexualidade)", "CAPS AD (álcool e drogas)",
-    "CAPS AD III (24h)", "Atendimento a vítimas de violência",
+    "CAPS AD III", "Atendimento a vítimas de violência",
 }
 
 
