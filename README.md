@@ -62,10 +62,10 @@ Registrado de forma transparente, porque faz parte do aprendizado:
 
 ## 📸 Capturas de tela
 
-<img src="assets/PS (1).png"
-<img src="assets/PS (2).png"
-<img src="assets/PS (3).png"
-<img src="assets/PS (4).png"
+<img src="assets/PS (1).png">
+<img src="assets/PS (2).png">
+<img src="assets/PS (3).png">
+<img src="assets/PS (4).png">
 
 ## 🚀 Como rodar localmente
 
