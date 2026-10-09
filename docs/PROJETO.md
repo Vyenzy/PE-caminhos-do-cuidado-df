@@ -32,11 +32,11 @@ Protótipo web de **mapa-jogo informativo**: serviços explicados em linguagem s
 
 - **Imersão e pesquisa:** Fizemos entrevistas via QR code, afixado em cartazes em diversos locais da Faculdade. Recebemos 6 respostas no total, o que é compreensível dado o período de avaliações. Por ser uma amostra pequena, os resultados são exploratórios e não permitem generalizações.
 - **Prototipação:** protótipo funcional simplificado em Python/Streamlit, desenvolvido com apoio de Inteligência Artificial generativa (Claude, da Anthropic).
-- **Validação:** teste de usabilidade **anônimo** com estudantes, via formulário sem coleta de e-mail. [A ser preenchido]
+- **Validação:** [teste de usabilidade **anônimo** com estudantes, via formulário sem coleta de e-mail. ](https://forms.gle/G3ZEvBvoRmqsHKXr8) [Resultados a serem preenchidos]
 
 ## Limitações e aprendizados
 
 - Os pedidos registrados nas respostas (anonimato, avaliações de outros estudantes, tempo de espera) dependem de dados que ainda não existem em formato aberto por serviço. Esse é o principal caminho de evolução.
-- Parte dos serviços está marcada como "a confirmar" por falta de endereço/telefone em fonte oficial.
 - O mapa usa posições aproximadas por região administrativa.
 - Amostra pequena (6 respostas): os achados orientam o protótipo, mas não representam toda a comunidade.
+- Dos 18 CAPS listados na base, 14 têm endereço e telefone verificados na página oficial da unidade. Os outros 4 seguem a confirmar porque a página oficial não informa telefone ou endereço.
