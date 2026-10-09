@@ -9,19 +9,12 @@ Rodar localmente:  streamlit run app.py
 """
 from pathlib import Path
 import hashlib
-
 import pandas as pd
 import streamlit as st
+import pydeck as pdk
 
-try:
-    import pydeck as pdk
-except Exception:  # pydeck normalmente já vem com o Streamlit
-    pdk = None
 
-# ----------------------------------------------------------------------------
-# CONFIGURAÇÃO (edite aqui)
-# ----------------------------------------------------------------------------
-FORM_URL = "https://forms.gle/VjkMS8Sftw37BKpA6"  # formulário de feedback anônimo (validação)
+FORM_URL = "https://forms.gle/VjkMS8Sftw37BKpA6"
 INFOSAUDE_UBS_URL = "http://info.saude.df.gov.br/saude-docidadao/cidadao-ubs-unidades-basicas-de-saude/"
 DATA_PATH = Path(__file__).parent / "data" / "servicos.csv"
 
