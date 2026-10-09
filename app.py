@@ -8,7 +8,9 @@ Sem login, sem cadastro e sem armazenamento das respostas do usuário.
 Rodar localmente:  streamlit run app.py
 """
 from pathlib import Path
-import hashlib
+import html
+import math
+
 import pandas as pd
 import streamlit as st
 
@@ -34,6 +36,7 @@ st.set_page_config(page_title="Caminhos do Cuidado DF", page_icon="🧭", layout
 RA_COORDS = {
     "Plano Piloto (Asa Sul)": (-15.8270, -47.9150),
     "Plano Piloto (Asa Norte)": (-15.7600, -47.8850),
+    "Plano Piloto (Rodoferroviária)": (-15.7926, -47.8828),
     "Taguatinga": (-15.8330, -48.0570),
     "Ceilândia": (-15.8190, -48.1080),
     "Samambaia": (-15.8780, -48.0820),
@@ -65,6 +68,8 @@ COR_TIPO = {
     "Urgência psiquiátrica": [239, 68, 68],
     "Hospital Dia (IST/HIV e transexualidade)": [234, 179, 8],
     "Atendimento a vítimas de violência": [236, 72, 153],
+    "Atendimento à mulher (CEAM e Casa da Mulher)": [190, 24, 93],
+    "CREAS (proteção social)": [71, 85, 105],
 }
 
 O_QUE_E = {
@@ -105,7 +110,19 @@ O_QUE_E = {
     "Atendimento a vítimas de violência": (
         "Atendimento multiprofissional a pessoas em situação de violência. Para mulheres, atendimento "
         "psicológico e social; para crianças e adolescentes, psicológico, médico e social, conforme o "
-        "documento da Região de Saúde Oeste."
+        "documento da Região de Saúde Oeste. O Direito Delas (Sejus/DF) atende gratuitamente vítimas de violências "
+        "e familiares, com psicólogos e assistentes sociais, sem comprovação de renda."
+    ),
+    "Atendimento à mulher (CEAM e Casa da Mulher)": (
+        "Serviços da Secretaria da Mulher do DF com atendimento multidisciplinar (social, psicológico e pedagógico) "
+        "a mulheres em situação de violência. São de portas abertas, gratuitos e não exigem encaminhamento. "
+        "Os CEAMs funcionam de segunda a sexta, das 8h às 18h; a Casa da Mulher Brasileira, segundo a página oficial, "
+        "funciona todos os dias, 24 horas."
+    ),
+    "CREAS (proteção social)": (
+        "Serviço de atendimento e proteção especializado a pessoas em situação de discriminação, com orientação "
+        "individual, familiar e em grupos e encaminhamento a outros serviços e ao sistema de garantia de direitos. "
+        "O CREAS da Diversidade aparece no portal Cidadania Trans, da Sejus/DF."
     ),
     "Hospital Dia (IST/HIV e transexualidade)": (
         "Centro de referência em IST, HIV e hepatites, que também oferece ambulatório de transexualidade e PrEP, "
@@ -117,53 +134,37 @@ O_QUE_E = {
 # CARREGAMENTO DE DADOS
 # ----------------------------------------------------------------------------
 @st.cache_data
-def carregar_servicos() -> pd.DataFrame:
+def carregar_servicos(mtime: float) -> pd.DataFrame:
+    """`mtime` só existe para invalidar o cache quando o CSV muda."""
     df = pd.read_csv(DATA_PATH, dtype=str).fillna("")
-    
-    # NORMALIZA NOMES DOS TIPOS (remove acentos e padroniza)
-    TIPO_MAPPING = {
-        "ambulatorio para adolescentes": "Ambulatório para adolescentes",
-        "urgencia psiquiatrica": "Urgência psiquiátrica",
-        "caps i infantojuvenil": "CAPS i (infantojuvenil)",
-        "caps ad alcool drogas": "CAPS AD (álcool e drogas)",
-        "hospital dia ist hiv transexualidade": "Hospital Dia (IST/HIV e transexualidade)",
-        "atendimento violencia": "Atendimento a vítimas de violência",
-    }
-    
-    df["tipo_normalizado"] = df["tipo"].str.lower().str.strip()
-    df["tipo"] = df["tipo_normalizado"].map(TIPO_MAPPING).fillna(df["tipo"])
-    
-    # Garante que as colunas lat/lon existem
-    if "lat" not in df.columns:
-        df["lat"] = None
-    if "lon" not in df.columns:
-        df["lon"] = None
-    
-    # Tenta converter para float
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    
-    # Onde tem NaN, calcula offset da RA
-    for idx, row in df.iterrows():
-        if pd.isna(row["lat"]) or pd.isna(row["lon"]):
-            base = RA_COORDS.get(row["regiao"])
-            if base is None:
-                continue
-            
-            # OFFSET PEQUENO ESTÁVEL (±500m)
-            h = int(hashlib.md5(row["id"].encode()).hexdigest()[:6], 16)
-            dx = ((h % 1000) / 1000 - 0.5) * 0.005
-            dy = (((h // 1000) % 1000) / 1000 - 0.5) * 0.005
-            df.at[idx, "lat"] = base[0] + dy
-            df.at[idx, "lon"] = base[1] + dx
-    
-    # Converte finalmente para float
-    df["lat"] = df["lat"].astype(float)
-    df["lon"] = df["lon"].astype(float)
-    
-    # Mapeia cores USANDO o tipo normalizado
-    df["cor"] = df["tipo"].apply(lambda t: COR_TIPO.get(t, [120, 120, 120]))
+
+    for col in ("lat", "lon"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "tags" not in df.columns:
+        df["tags"] = ""
+
+    # Sem lat/lon no CSV: usa o centro da região e espalha em círculo as unidades da mesma região
+    faltando = df[df["lat"].isna() | df["lon"].isna()]
+    for regiao, grupo in faltando.groupby("regiao"):
+        base = RA_COORDS.get(regiao)
+        if base is None:
+            continue
+        n = len(grupo)
+        for i, idx in enumerate(grupo.index):
+            ang = 2 * math.pi * i / n
+            raio = 0.0 if n == 1 else 0.014  # ~1,5 km
+            df.at[idx, "lat"] = base[0] + raio * math.sin(ang)
+            df.at[idx, "lon"] = base[1] + raio * math.cos(ang)
+
+    df["cor"] = df["tipo"].map(lambda t: COR_TIPO.get(t, [120, 120, 120]))
     return df
+
+
+def get_servicos() -> pd.DataFrame:
+    return carregar_servicos(DATA_PATH.stat().st_mtime)
+
 
 # ----------------------------------------------------------------------------
 # BARRA LATERAL
@@ -205,14 +206,14 @@ def pagina_mapa():
         "e **como chegar lá**. Sem cadastro, sem julgamento."
     )
     
-    df = carregar_servicos()
+    df = get_servicos()
 
     # KPIs no topo
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Serviços", len(df), delta=f"{(df['status'] == 'verificado').sum()} verificados")
     with col2:
-        st.metric("Regiões Cobertas", df['regiao'].nunique())
+        st.metric("Regiões Cobertas", df.loc[df['regiao'] != 'Todo o DF', 'regiao'].nunique())
     with col3:
         st.metric("Tipos de Serviço", df['tipo'].nunique())
     with col4:
@@ -225,8 +226,8 @@ def pagina_mapa():
     c3, c4 = st.columns(2)
     incluir_pendentes = c3.checkbox("Incluir dados a confirmar", value=True)
     so_lgbt = c4.checkbox(
-        "Só serviços com oferta para população LGBTQIA+ citada na Carta",
-        help="Baseado no que a Carta de Serviços da SES-DF descreve. Não mede a qualidade do acolhimento.",
+        "Só serviços com oferta para população LGBTQIA+ citada em fonte oficial",
+        help="Baseado na Carta de Serviços da SES-DF e no portal Cidadania Trans (Sejus/DF). Não mede a qualidade do acolhimento.",
     )
     
     # 🔍 BUSCA POR NOME
@@ -252,30 +253,31 @@ def pagina_mapa():
         m = folium.Map(location=[-15.82, -47.95], zoom_start=10.5, tiles="openstreetmap")
         
         for _, r in mapeaveis.iterrows():
-            cor = r['cor']
+            cor = r["cor"]
+            e = lambda campo: html.escape(str(r[campo]))
             popup_html = f"""
             <div style="font-family: Arial; min-width: 200px;">
-                <b>{r['nome']}</b><br/>
+                <b>{e('nome')}</b><br/>
                 <hr style="margin: 4px 0"/>
-                🏥 <b>Tipo:</b> {r['tipo']}<br/>
-                📍 <b>Região:</b> {r['regiao']}<br/>
-                📞 <b>Telefone:</b> {r['telefone']}<br/>
-                <i>({r['status']})</i>
+                🏥 <b>Tipo:</b> {e('tipo')}<br/>
+                📍 <b>Região:</b> {e('regiao')}<br/>
+                📞 <b>Telefone:</b> {e('telefone')}<br/>
+                <i>({e('status')})</i>
             </div>
             """
-            
+
             folium.CircleMarker(
-                location=[float(r['lat']), float(r['lon'])],
-                radius=12,
+                location=[float(r["lat"]), float(r["lon"])],
+                radius=10,
                 popup=folium.Popup(popup_html, max_width=350),
-                tooltip=r['nome'],
-                color='#ffffff',
+                tooltip=f"{e('nome')} · {e('tipo')}",
+                color="#ffffff",
                 fill=True,
-                fillColor=f'rgb({cor[0]},{cor[1]},{cor[2]})',
+                fillColor=f"rgb({cor[0]},{cor[1]},{cor[2]})",
                 fill_opacity=0.9,
                 weight=2,
             ).add_to(m)
-        
+
         folium_static(m, width="100%", height=550)
         
         presentes = set(mapeaveis["tipo"])
@@ -283,7 +285,7 @@ def pagina_mapa():
         st.markdown("**Legenda (cor de cada ponto):**")
         st.markdown(legenda_html(ordem), unsafe_allow_html=True)
         st.caption(
-            "Passe o mouse para ver o nome. Clique para ver detalhes e links de navegação. "
+            "Passe o mouse para ver o nome. Clique para ver os detalhes do serviço. "
             "📍 Posições **aproximadas** (centro da região administrativa com pequeno deslocamento). "
             "Para o endereço exato, veja os cartões abaixo."
         )
@@ -293,7 +295,7 @@ def pagina_mapa():
         st.info("Nenhum serviço mapeável com esses filtros.")
 
     sem_pos = f[f["lat"].isna()]
-    aviso = f"Mostrando **{len(f) - len(sem_pos)} de {len(df)}** serviços no mapa."
+    aviso = f"Mostrando **{len(f) - len(sem_pos)} de {len(f)}** serviços filtrados no mapa."
     if not sem_pos.empty:
         aviso += " Sem posição no mapa (aparecem só nos cartões): " + ", ".join(sem_pos["nome"]) + "."
     st.caption(aviso)
@@ -323,15 +325,23 @@ def pagina_mapa():
                 st.link_button("🔗 Encontrar minha UBS (InfoSaúde DF)", INFOSAUDE_UBS_URL)
             st.caption(f"{selo} · Fonte: {r['fonte']} · consultado em {r['data_consulta']}")
 
-    # ⬇️ DOWNLOAD CSV
-    colunas_csv = ["nome", "tipo", "regiao", "endereco", "telefone", "horario", "acesso", "publico",
-                   "fonte", "data_consulta", "status"]
+    # ⬇️ DOWNLOAD (versão amigável, gerada a partir do CSV completo)
+    nomes = {
+        "nome": "Serviço", "tipo": "Tipo", "regiao": "Região", "endereco": "Endereço",
+        "telefone": "Telefone", "horario": "Horário", "acesso": "Como acessar",
+        "publico": "Quem pode procurar", "observacao": "Observações",
+        "status": "Situação dos dados", "fonte": "Fonte", "data_consulta": "Consultado em",
+    }
+    amigavel = df[list(nomes)].rename(columns=nomes)
+    amigavel["Situação dos dados"] = amigavel["Situação dos dados"].map(
+        {"verificado": "Verificado", "confirmar": "A confirmar"}
+    )
     st.download_button(
         label="⬇️ Baixar lista de serviços (CSV) para consultar sem internet",
-        data=df[colunas_csv].to_csv(index=False).encode("utf-8-sig"),
+        data=amigavel.to_csv(index=False).encode("utf-8-sig"),
         file_name="caminhos_do_cuidado_servicos.csv",
         mime="text/csv",
-        help="Baixa a lista filtrada dos serviços exibidos no mapa"
+        help="Baixa a lista completa de serviços (não só os filtrados)",
     )
 
 # ----------------------------------------------------------------------------
@@ -432,6 +442,58 @@ MISSOES = [
         ],
         "aprendizado": "Ligue 180 (orientação e denúncia) e 190 (emergência). Conecta o projeto ao ODS 5.",
     },
+    {
+        "id": "m7",
+        "titulo": "Missão 7 · Atendimento à mulher no DF",
+        "cenario": (
+            "Uma colega sofre violência e quer conversar com uma equipe de psicologia e assistência social, "
+            "sem depender de encaminhamento. Qual serviço ela pode procurar?"
+        ),
+        "opcoes": [
+            ("Um CEAM ou a Casa da Mulher Brasileira, da Secretaria da Mulher: portas abertas, gratuitos e sem encaminhamento.", True,
+             "Isso. Os CEAMs funcionam de segunda a sexta, das 8h às 18h, e dá para agendar pelo Agenda DF. "
+             "A Casa da Mulher Brasileira, segundo a página oficial, funciona todos os dias, 24 horas."),
+            ("Só consegue atendimento se tiver um encaminhamento da Justiça.", False,
+             "Segundo a Secretaria da Mulher, os CEAMs independem de qualquer tipo de encaminhamento."),
+            ("Esperar a situação melhorar sozinha.", False,
+             "Ela não precisa enfrentar isso sozinha. Procurar apoio ajuda a organizar a proteção e o cuidado."),
+        ],
+        "aprendizado": "CEAMs e Casa da Mulher Brasileira: atendimento gratuito e de portas abertas. Em perigo imediato, 190. Fonte: Secretaria da Mulher do DF.",
+    },
+    {
+        "id": "m8",
+        "titulo": "Missão 8 · Atendimento sem comprovar renda",
+        "cenario": (
+            "Alguém precisa de acompanhamento psicológico e social depois de sofrer violência, mas não tem como "
+            "comprovar renda. Isso é um obstáculo?"
+        ),
+        "opcoes": [
+            ("Não: o Direito Delas, da Sejus, é gratuito, não exige comprovação de renda e atende vítimas e familiares, independentemente de idade ou identidade de gênero.", True,
+             "Isso. Os núcleos ficam em Ceilândia, Guará, Itapoã, Paranoá, Planaltina, Taguatinga, Recanto das Emas e Plano Piloto."),
+            ("Sim, só quem comprova baixa renda é atendido.", False,
+             "Segundo a Sejus, não há necessidade de comprovação de renda no Direito Delas."),
+            ("O serviço existe apenas no Plano Piloto.", False,
+             "Há núcleos em várias regiões administrativas. Veja o mapa e filtre pela sua região."),
+        ],
+        "aprendizado": "Direito Delas: gratuito, sem comprovação de renda, com psicólogos e assistentes sociais. Fonte: portal Cidadania Trans (Sejus/DF).",
+    },
+    {
+        "id": "m9",
+        "titulo": "Missão 9 · Saúde e direitos da população LGBTQIA+",
+        "cenario": (
+            "Uma pessoa trans quer atendimento de saúde especializado e também orientação sobre uma situação de "
+            "discriminação. O que existe na rede pública do DF?"
+        ),
+        "opcoes": [
+            ("O Ambulatório Trans, no Hospital Dia (saúde integral), e o CREAS da Diversidade (orientação e proteção em casos de discriminação).", True,
+             "Isso. O Ambulatório Trans conta com profissionais como psicologia, psiquiatria, enfermagem e endocrinologia. Confirme horários por telefone."),
+            ("Não existe atendimento público específico.", False,
+             "Existe. Procure no mapa o Hospital Dia (Asa Sul) e o CREAS da Diversidade (L2 Sul)."),
+            ("Só organizações privadas oferecem esse tipo de apoio.", False,
+             "Há serviços públicos e gratuitos listados no portal Cidadania Trans, da Sejus/DF."),
+        ],
+        "aprendizado": "Ambulatório Trans (Hospital Dia): (61) 3242-3559. CREAS da Diversidade: (61) 3773-7498. Fonte: portal Cidadania Trans (Sejus/DF).",
+    },
 ]
 
 def pagina_missoes():
@@ -482,7 +544,9 @@ def pagina_ajuda():
     )
     st.info(
         "### Violência contra a mulher\n"
-        "**Ligue 180** (Central de Atendimento à Mulher). Em perigo imediato, **190**."
+        "**Ligue 180** (Central de Atendimento à Mulher). Em perigo imediato, **190**.\n\n"
+        "- **Casa da Mulher Brasileira** (Ceilândia): atendimento 24 horas, recepção (61) 3371-2897.\n"
+        "- **CEAMs** (seg a sex, 8h às 18h, sem encaminhamento): veja os endereços no mapa."
     )
     st.success(
         "### Preciso de atendimento de saúde mental\n"
@@ -491,7 +555,7 @@ def pagina_ajuda():
         "- **Sem urgência?** Procure a **UBS** do seu bairro, onde o acolhimento é garantido.\n"
     )
     st.caption(
-        "Fontes: Carta de Serviços da SES-DF; números nacionais 192, 190, 188 e 180. "
+        "Fontes: Carta de Serviços da SES-DF; Secretaria da Mulher do DF; números nacionais 192, 190, 188 e 180. "
         "Confirme sempre telefones e horários antes de ir."
     )
 
@@ -516,8 +580,9 @@ def pagina_sobre():
         "- Missões educativas sobre acesso, mitos e rede de proteção.\n"
         "- Página de ajuda imediata.\n"
         "- Download da lista de serviços (CSV) para consultar sem internet.\n"
-        "- Filtro por oferta para população LGBTQIA+ **citada na Carta de Serviços da SES-DF**.\n"
-        "- Busca por nome e botões Google Maps/Waze!"
+        "- Rede de atendimento à mulher (CEAMs, Casa da Mulher Brasileira, Direito Delas) e serviços citados para a população LGBTQIA+ (Ambulatório Trans, CREAS da Diversidade), com fonte oficial.\n"
+        "- Filtro por oferta para população LGBTQIA+ **citada em fonte oficial** (Carta de Serviços da SES-DF e portal Cidadania Trans).\n"
+        "- Busca por nome do serviço."
     )
     st.subheader("Ainda não implementado (trabalho futuro)")
     st.markdown(
@@ -527,7 +592,7 @@ def pagina_sobre():
         "- Modo offline completo (aplicativo instalável).\n"
         "- Lista completa de CAPS e UBS com endereços verificados."
     )
-    df = carregar_servicos()
+    df = get_servicos()
     st.subheader("Dados e fontes")
     st.write(
         f"Serviços cadastrados: **{len(df)}** · com dados verificados: **{(df['status'] == 'verificado').sum()}** · "
