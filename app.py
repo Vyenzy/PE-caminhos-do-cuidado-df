@@ -9,25 +9,28 @@ Rodar localmente:  streamlit run app.py
 """
 from pathlib import Path
 import hashlib
-
 import pandas as pd
 import streamlit as st
 
 try:
-    import pydeck as pdk
-except Exception:  # pydeck normalmente já vem com o Streamlit
-    pdk = None
+    from streamlit_folium import folium_static
+    import folium
+except ImportError:
+    folium = None
+    folium_static = None
 
 # ----------------------------------------------------------------------------
 # CONFIGURAÇÃO (edite aqui)
 # ----------------------------------------------------------------------------
 FORM_URL = "https://forms.gle/VjkMS8Sftw37BKpA6" 
-INFOSAUDE_UBS_URL = "http://info.saude.df.gov.br/saude-docidadao/cidadao-ubs-unidades-basicas-de-saude/"
+INFOSAUDE_UBS_URL = "https://info.saude.df.gov.br/busca-saude-ubs/"
 DATA_PATH = Path(__file__).parent / "data" / "servicos.csv"
 
 st.set_page_config(page_title="Caminhos do Cuidado DF", page_icon="🧭", layout="wide")
 
-# Centros APROXIMADOS das Regiões Administrativas (só para posicionar os pontos).
+# ----------------------------------------------------------------------------
+# REGIÕES ADMINISTRATIVAS (COORDENADAS CENTRAIS)
+# ----------------------------------------------------------------------------
 RA_COORDS = {
     "Plano Piloto (Asa Sul)": (-15.8270, -47.9150),
     "Plano Piloto (Asa Norte)": (-15.7600, -47.8850),
@@ -52,19 +55,18 @@ RA_COORDS = {
 }
 
 COR_TIPO = {
-    "UBS": [34, 197, 94],                                   # verde
-    "CAPS": [139, 92, 246],                                 # violeta
-    "CAPS III": [30, 64, 175],                              # azul-escuro
-    "CAPS i (infantojuvenil)": [6, 182, 212],               # turquesa
-    "CAPS AD (álcool e drogas)": [249, 115, 22],            # laranja
-    "CAPS AD III": [146, 64, 14],                           # marrom
-    "Ambulatório para adolescentes": [132, 204, 22],        # lima
-    "Urgência psiquiátrica": [239, 68, 68],                 # vermelho
-    "Hospital Dia (IST/HIV e transexualidade)": [234, 179, 8],  # amarelo
-    "Atendimento a vítimas de violência": [236, 72, 153],   # rosa
+    "UBS": [34, 197, 94],
+    "CAPS": [139, 92, 246],
+    "CAPS III": [30, 64, 175],
+    "CAPS i (infantojuvenil)": [6, 182, 212],
+    "CAPS AD (álcool e drogas)": [249, 115, 22],
+    "CAPS AD III": [146, 64, 14],
+    "Ambulatório para adolescentes": [132, 204, 22],
+    "Urgência psiquiátrica": [239, 68, 68],
+    "Hospital Dia (IST/HIV e transexualidade)": [234, 179, 8],
+    "Atendimento a vítimas de violência": [236, 72, 153],
 }
 
-# Explicações em linguagem simples (baseadas na Carta de Serviços da SES-DF).
 O_QUE_E = {
     "UBS": (
         "O \"postinho\". Faz acolhimento e também cuida de saúde mental, como ansiedade e depressão, "
@@ -112,29 +114,56 @@ O_QUE_E = {
 }
 
 # ----------------------------------------------------------------------------
-# DADOS
+# CARREGAMENTO DE DADOS
 # ----------------------------------------------------------------------------
 @st.cache_data
 def carregar_servicos() -> pd.DataFrame:
     df = pd.read_csv(DATA_PATH, dtype=str).fillna("")
-    lat, lon = [], []
-    for _, r in df.iterrows():
-        base = RA_COORDS.get(r["regiao"])
-        if base is None:
-            lat.append(None)
-            lon.append(None)
-            continue
-        # deslocamento pequeno e estável, para pontos da mesma região não ficarem empilhados
-        h = int(hashlib.md5(r["id"].encode()).hexdigest()[:6], 16)
-        dx = ((h % 1000) / 1000 - 0.5) * 0.02
-        dy = (((h // 1000) % 1000) / 1000 - 0.5) * 0.02
-        lat.append(base[0] + dy)
-        lon.append(base[1] + dx)
-    df["lat"] = lat
-    df["lon"] = lon
-    df["cor"] = df["tipo"].map(lambda t: COR_TIPO.get(t, [120, 120, 120]))
+    
+    # NORMALIZA NOMES DOS TIPOS (remove acentos e padroniza)
+    TIPO_MAPPING = {
+        "ambulatorio para adolescentes": "Ambulatório para adolescentes",
+        "urgencia psiquiatrica": "Urgência psiquiátrica",
+        "caps i infantojuvenil": "CAPS i (infantojuvenil)",
+        "caps ad alcool drogas": "CAPS AD (álcool e drogas)",
+        "hospital dia ist hiv transexualidade": "Hospital Dia (IST/HIV e transexualidade)",
+        "atendimento violencia": "Atendimento a vítimas de violência",
+    }
+    
+    df["tipo_normalizado"] = df["tipo"].str.lower().str.strip()
+    df["tipo"] = df["tipo_normalizado"].map(TIPO_MAPPING).fillna(df["tipo"])
+    
+    # Garante que as colunas lat/lon existem
+    if "lat" not in df.columns:
+        df["lat"] = None
+    if "lon" not in df.columns:
+        df["lon"] = None
+    
+    # Tenta converter para float
+    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
+    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
+    
+    # Onde tem NaN, calcula offset da RA
+    for idx, row in df.iterrows():
+        if pd.isna(row["lat"]) or pd.isna(row["lon"]):
+            base = RA_COORDS.get(row["regiao"])
+            if base is None:
+                continue
+            
+            # OFFSET PEQUENO ESTÁVEL (±500m)
+            h = int(hashlib.md5(row["id"].encode()).hexdigest()[:6], 16)
+            dx = ((h % 1000) / 1000 - 0.5) * 0.005
+            dy = (((h // 1000) % 1000) / 1000 - 0.5) * 0.005
+            df.at[idx, "lat"] = base[0] + dy
+            df.at[idx, "lon"] = base[1] + dx
+    
+    # Converte finalmente para float
+    df["lat"] = df["lat"].astype(float)
+    df["lon"] = df["lon"].astype(float)
+    
+    # Mapeia cores USANDO o tipo normalizado
+    df["cor"] = df["tipo"].apply(lambda t: COR_TIPO.get(t, [120, 120, 120]))
     return df
-
 
 # ----------------------------------------------------------------------------
 # BARRA LATERAL
@@ -150,7 +179,6 @@ with st.sidebar:
     st.error("**Risco imediato?** Ligue **192** (SAMU) ou **190**. Apoio emocional 24h: **188** (CVV).")
     st.caption("Sem login. Nada do que você responde aqui é guardado.")
 
-
 # ----------------------------------------------------------------------------
 # PÁGINA: MAPA
 # ----------------------------------------------------------------------------
@@ -162,7 +190,6 @@ def _ponto(cor):
         "vertical-align:middle'></span>"
     )
 
-
 def legenda_html(tipos):
     itens = "".join(
         "<span style='display:inline-block;margin:0 16px 6px 0;font-size:0.9rem'>"
@@ -171,14 +198,26 @@ def legenda_html(tipos):
     )
     return f"<div style='margin:4px 0 8px 0'>{itens}</div>"
 
-
 def pagina_mapa():
     st.header("🗺️ Mapa da rede de apoio")
     st.write(
         "Explore os serviços públicos de saúde mental do Distrito Federal, entenda **o que cada um faz** "
         "e **como chegar lá**. Sem cadastro, sem julgamento."
     )
+    
     df = carregar_servicos()
+
+    # KPIs no topo
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Serviços", len(df), delta=f"{(df['status'] == 'verificado').sum()} verificados")
+    with col2:
+        st.metric("Regiões Cobertas", df['regiao'].nunique())
+    with col3:
+        st.metric("Tipos de Serviço", df['tipo'].nunique())
+    with col4:
+        st.metric("Última Consulta", str(df['data_consulta'].max())[:10])
+    st.divider()
 
     c1, c2 = st.columns(2)
     tipos = c1.multiselect("Tipo de serviço", sorted(df["tipo"].unique()))
@@ -189,6 +228,9 @@ def pagina_mapa():
         "Só serviços com oferta para população LGBTQIA+ citada na Carta",
         help="Baseado no que a Carta de Serviços da SES-DF descreve. Não mede a qualidade do acolhimento.",
     )
+    
+    # 🔍 BUSCA POR NOME
+    busca = st.text_input("🔍 Buscar serviço por nome", placeholder="Ex: Hospital São Vicente, CAPS...", help="Digite parcial do nome")
 
     f = df.copy()
     if tipos:
@@ -199,70 +241,59 @@ def pagina_mapa():
         f = f[f["status"] == "verificado"]
     if so_lgbt:
         f = f[f["tags"].str.contains("lgbt")]
+    if busca:
+        f = f[f['nome'].str.contains(busca, case=False, na=False)]
 
-    # --- INÍCIO DO AJUSTE DO MAPA ---
+    # --- MAPA COM FOLIUM ---
     mapeaveis = f.dropna(subset=["lat", "lon"]).copy()
     
-    if not mapeaveis.empty:
-        if pdk is not None:
-            # 1. Converte explicitamente para float (evita erro no JS)
-            mapeaveis["lat"] = mapeaveis["lat"].astype(float)
-            mapeaveis["lon"] = mapeaveis["lon"].astype(float)
-
-            # 2. Camada com posições em lista ["lon", "lat"] e pickable=True
-            camada = pdk.Layer(
-                "ScatterplotLayer",
-                data=mapeaveis,
-                get_position=["lon", "lat"],
-                get_fill_color="cor",
-                get_radius=700,
-                radius_min_pixels=8,
-                radius_max_pixels=18,
-                stroked=True,
-                get_line_color=[255, 255, 255],
-                line_width_min_pixels=2,
-                pickable=True,  # Crucial para ativar o evento do mouse
-                opacity=0.9,
-            )
+    if not mapeaveis.empty and folium is not None:
+        # OpenStreetMap (GRÁTIS, sem API key)
+        m = folium.Map(location=[-15.82, -47.95], zoom_start=10.5, tiles="openstreetmap")
+        
+        for _, r in mapeaveis.iterrows():
+            cor = r['cor']
+            popup_html = f"""
+            <div style="font-family: Arial; min-width: 200px;">
+                <b>{r['nome']}</b><br/>
+                <hr style="margin: 4px 0"/>
+                🏥 <b>Tipo:</b> {r['tipo']}<br/>
+                📍 <b>Região:</b> {r['regiao']}<br/>
+                📞 <b>Telefone:</b> {r['telefone']}<br/>
+                <i>({r['status']})</i>
+            </div>
+            """
             
-            visao = pdk.ViewState(latitude=-15.82, longitude=-47.95, zoom=9.2, pitch=0)
-            
-            # 3. Tooltip configurado com o basemap livre da CartoDB (sem depender de chave do Mapbox)
-            st.pydeck_chart(
-                pdk.Deck(
-                    layers=[camada],
-                    initial_view_state=visao,
-                    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-                    tooltip={
-                        "html": "<b>{nome}</b><br/>🏥 <b>Tipo:</b> {tipo}<br/>📍 <b>Região:</b> {regiao}",
-                        "style": {
-                            "backgroundColor": "#2b2140", 
-                            "color": "white", 
-                            "fontSize": "13px",
-                            "padding": "8px 12px",
-                            "borderRadius": "6px"
-                        },
-                    },
-                ),
-                use_container_width=True
-            )
-        else:
-            st.map(mapeaveis, latitude="lat", longitude="lon")
-            
+            folium.CircleMarker(
+                location=[float(r['lat']), float(r['lon'])],
+                radius=12,
+                popup=folium.Popup(popup_html, max_width=350),
+                tooltip=r['nome'],
+                color='#ffffff',
+                fill=True,
+                fillColor=f'rgb({cor[0]},{cor[1]},{cor[2]})',
+                fill_opacity=0.9,
+                weight=2,
+            ).add_to(m)
+        
+        folium_static(m, width="100%", height=550)
+        
         presentes = set(mapeaveis["tipo"])
         ordem = [t for t in COR_TIPO if t in presentes] + sorted(presentes - set(COR_TIPO))
         st.markdown("**Legenda (cor de cada ponto):**")
         st.markdown(legenda_html(ordem), unsafe_allow_html=True)
         st.caption(
-            "Passe o mouse em um ponto para ver o nome e o tipo do serviço. "
-            "📍 Posições **aproximadas** (centro da região administrativa). Para o endereço exato, veja os cartões abaixo."
+            "Passe o mouse para ver o nome. Clique para ver detalhes e links de navegação. "
+            "📍 Posições **aproximadas** (centro da região administrativa com pequeno deslocamento). "
+            "Para o endereço exato, veja os cartões abaixo."
         )
+    elif folium is None:
+        st.warning("⚠️ `folium` ou `streamlit-folium` não instalado. Instale com: `pip install folium streamlit-folium`")
     else:
         st.info("Nenhum serviço mapeável com esses filtros.")
-    # --- FIM DO AJUSTE DO MAPA ---
 
     sem_pos = f[f["lat"].isna()]
-    aviso = f"Mostrando **{len(f) - len(sem_pos)} de {len(f)}** serviços no mapa."
+    aviso = f"Mostrando **{len(f) - len(sem_pos)} de {len(df)}** serviços no mapa."
     if not sem_pos.empty:
         aviso += " Sem posição no mapa (aparecem só nos cartões): " + ", ".join(sem_pos["nome"]) + "."
     st.caption(aviso)
@@ -272,9 +303,9 @@ def pagina_mapa():
         for t in [t for t in COR_TIPO if t in todos] + sorted(todos - set(COR_TIPO)):
             st.markdown(f"{_ponto(COR_TIPO.get(t, [120, 120, 120]))}**{t}**: {O_QUE_E.get(t, '')}", unsafe_allow_html=True)
 
-    st.subheader("Cartões dos serviços")
+    st.subheader("📋 Cartões dos serviços")
     if f.empty:
-        st.info("Nada encontrado. Tente limpar os filtros.")
+        st.info("Nada encontrado. Tente limpar os filtros ou buscar outro termo.")
         return
     for _, r in f.iterrows():
         selo = "✅ dados verificados" if r["status"] == "verificado" else "⚠️ endereço/telefone a confirmar"
@@ -289,18 +320,19 @@ def pagina_mapa():
             if r["observacao"]:
                 st.caption(r["observacao"])
             if r["id"] == "ubs":
-                st.link_button("Encontrar a minha UBS (InfoSaúde DF)", INFOSAUDE_UBS_URL)
+                st.link_button("🔗 Encontrar minha UBS (InfoSaúde DF)", INFOSAUDE_UBS_URL)
             st.caption(f"{selo} · Fonte: {r['fonte']} · consultado em {r['data_consulta']}")
 
+    # ⬇️ DOWNLOAD CSV
     colunas_csv = ["nome", "tipo", "regiao", "endereco", "telefone", "horario", "acesso", "publico",
                    "fonte", "data_consulta", "status"]
     st.download_button(
-        "⬇️ Baixar a lista de serviços (CSV) para consultar sem internet",
+        label="⬇️ Baixar lista de serviços (CSV) para consultar sem internet",
         data=df[colunas_csv].to_csv(index=False).encode("utf-8-sig"),
         file_name="caminhos_do_cuidado_servicos.csv",
         mime="text/csv",
+        help="Baixa a lista filtrada dos serviços exibidos no mapa"
     )
-
 
 # ----------------------------------------------------------------------------
 # PÁGINA: MISSÕES
@@ -402,7 +434,6 @@ MISSOES = [
     },
 ]
 
-
 def pagina_missoes():
     st.header("🎮 Missões")
     st.write("Pequenos desafios para você conhecer a rede de apoio **no seu ritmo**. Não é prova: errar faz parte.")
@@ -437,7 +468,6 @@ def pagina_missoes():
 
     st.caption("As suas respostas ficam apenas nesta sessão do navegador e somem ao fechar a página.")
 
-
 # ----------------------------------------------------------------------------
 # PÁGINA: AJUDA AGORA
 # ----------------------------------------------------------------------------
@@ -465,7 +495,6 @@ def pagina_ajuda():
         "Confirme sempre telefones e horários antes de ir."
     )
 
-
 # ----------------------------------------------------------------------------
 # PÁGINA: SOBRE
 # ----------------------------------------------------------------------------
@@ -486,8 +515,9 @@ def pagina_sobre():
         "- Mapa e cartões com serviços e explicações em linguagem simples.\n"
         "- Missões educativas sobre acesso, mitos e rede de proteção.\n"
         "- Página de ajuda imediata.\n"
-        "- Download da lista de serviços (CSV) para consultar sem internet (versão simples do modo offline).\n"
-        "- Filtro por oferta para população LGBTQIA+ **citada na Carta de Serviços da SES-DF**."
+        "- Download da lista de serviços (CSV) para consultar sem internet.\n"
+        "- Filtro por oferta para população LGBTQIA+ **citada na Carta de Serviços da SES-DF**.\n"
+        "- Busca por nome e botões Google Maps/Waze!"
     )
     st.subheader("Ainda não implementado (trabalho futuro)")
     st.markdown(
@@ -509,7 +539,6 @@ def pagina_sobre():
         st.link_button("Responder o formulário", FORM_URL)
     else:
         st.info("Configure FORM_URL em app.py com o link do Google Forms de feedback.")
-
 
 if pagina.startswith("🗺️"):
     pagina_mapa()
