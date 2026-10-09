@@ -62,11 +62,10 @@ Registrado de forma transparente, porque faz parte do aprendizado:
 
 ## 📸 Capturas de tela
 
-<!--
-![Mapa de apoio](docs/screenshots/mapa.png)
-![Missões](docs/screenshots/missoes.png)
--->
-_Em breve._
+<img src="assets/PS (1).png"
+<img src="assets/PS (2).png"
+<img src="assets/PS (3).png"
+<img src="assets/PS (4).png"
 
 ## 🚀 Como rodar localmente
 
