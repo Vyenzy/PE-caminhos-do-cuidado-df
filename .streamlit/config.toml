@@ -1,0 +1,9 @@
+[theme]
+primaryColor = "#8B5CF6"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3EEFF"
+textColor = "#1F1B2E"
+
+[browser]
+# Privacidade: não enviar estatísticas de uso do Streamlit
+gatherUsageStats = false
