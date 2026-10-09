@@ -44,6 +44,7 @@ RA_COORDS = {
     "Núcleo Bandeirante": (-15.8700, -47.9680),
     "Itapoã": (-15.7450, -47.7660),
     "Cruzeiro": (-15.7900, -47.9400),
+    "Sobradinho II": (-15.6500, -47.8300),
     "Guará": (-15.8260, -47.9790),
     "Águas Claras": (-15.8390, -48.0270),
     "Brazlândia": (-15.6700, -48.2000),
@@ -51,16 +52,16 @@ RA_COORDS = {
 }
 
 COR_TIPO = {
-    "UBS": [52, 211, 153],
-    "CAPS": [139, 92, 246],
-    "CAPS III": [109, 40, 217],
-    "CAPS i (infantojuvenil)": [168, 85, 247],
-    "Ambulatório para adolescentes": [96, 165, 250],
-    "Urgência psiquiátrica": [244, 63, 94],
-    "Hospital Dia (IST/HIV e transexualidade)": [251, 191, 36],
-    "CAPS AD (álcool e drogas)": [99, 102, 241],
-    "CAPS AD III": [67, 56, 202],
-    "Atendimento a vítimas de violência": [236, 72, 153],
+    "UBS": [34, 197, 94],                                   # verde
+    "CAPS": [139, 92, 246],                                 # violeta
+    "CAPS III": [30, 64, 175],                              # azul-escuro
+    "CAPS i (infantojuvenil)": [6, 182, 212],               # turquesa
+    "CAPS AD (álcool e drogas)": [249, 115, 22],            # laranja
+    "CAPS AD III": [146, 64, 14],                           # marrom
+    "Ambulatório para adolescentes": [132, 204, 22],        # lima
+    "Urgência psiquiátrica": [239, 68, 68],                 # vermelho
+    "Hospital Dia (IST/HIV e transexualidade)": [234, 179, 8],  # amarelo
+    "Atendimento a vítimas de violência": [236, 72, 153],   # rosa
 }
 
 # Explicações em linguagem simples (baseadas na Carta de Serviços da SES-DF).
@@ -153,6 +154,24 @@ with st.sidebar:
 # ----------------------------------------------------------------------------
 # PÁGINA: MAPA
 # ----------------------------------------------------------------------------
+def _ponto(cor):
+    r, g, b = cor
+    return (
+        "<span style='display:inline-block;width:14px;height:14px;border-radius:50%;"
+        f"background:rgb({r},{g},{b});border:1px solid rgba(0,0,0,.25);margin-right:6px;"
+        "vertical-align:middle'></span>"
+    )
+
+
+def legenda_html(tipos):
+    itens = "".join(
+        "<span style='display:inline-block;margin:0 16px 6px 0;font-size:0.9rem'>"
+        f"{_ponto(COR_TIPO.get(t, [120, 120, 120]))}{t}</span>"
+        for t in tipos
+    )
+    return f"<div style='margin:4px 0 8px 0'>{itens}</div>"
+
+
 def pagina_mapa():
     st.header("🗺️ Mapa da rede de apoio")
     st.write(
@@ -189,9 +208,14 @@ def pagina_mapa():
                 data=mapeaveis[["nome", "tipo", "regiao", "lat", "lon", "cor"]],
                 get_position="[lon, lat]",
                 get_fill_color="cor",
-                get_radius=900,
+                get_radius=700,
+                radius_min_pixels=7,
+                radius_max_pixels=16,
+                stroked=True,
+                get_line_color=[255, 255, 255],
+                line_width_min_pixels=2,
                 pickable=True,
-                opacity=0.85,
+                opacity=0.9,
             )
             visao = pdk.ViewState(latitude=-15.82, longitude=-47.95, zoom=9.2)
             st.pydeck_chart(
@@ -199,14 +223,36 @@ def pagina_mapa():
                     layers=[camada],
                     initial_view_state=visao,
                     map_style="light",
-                    tooltip={"text": "{nome}\n{tipo}\n{regiao}"},
+                    tooltip={
+                        "html": "<b>{nome}</b><br/>{tipo}<br/>{regiao}",
+                        "style": {"backgroundColor": "#2b2140", "color": "white", "fontSize": "13px"},
+                    },
                 )
             )
         else:
             st.map(mapeaveis, latitude="lat", longitude="lon")
-        st.caption("📍 Posições **aproximadas** (centro da região administrativa). Use o endereço do cartão abaixo.")
+        presentes = set(mapeaveis["tipo"])
+        ordem = [t for t in COR_TIPO if t in presentes] + sorted(presentes - set(COR_TIPO))
+        st.markdown("**Legenda (cor de cada ponto):**")
+        st.markdown(legenda_html(ordem), unsafe_allow_html=True)
+        st.caption(
+            "Passe o mouse (ou toque) em um ponto para ver o nome do serviço. "
+            "📍 Posições **aproximadas** (centro da região administrativa); pontos da mesma região podem ficar "
+            "muito próximos, então use o zoom. Para o endereço exato, veja o cartão abaixo."
+        )
     else:
         st.info("Nenhum serviço mapeável com esses filtros.")
+
+    sem_pos = f[f["lat"].isna()]
+    aviso = f"Mostrando **{len(f) - len(sem_pos)} de {len(f)}** serviços no mapa."
+    if not sem_pos.empty:
+        aviso += " Sem posição no mapa (aparecem só nos cartões): " + ", ".join(sem_pos["nome"]) + "."
+    st.caption(aviso)
+
+    with st.expander("📖 O que significa cada cor? Guia dos tipos de serviço"):
+        todos = set(df["tipo"])
+        for t in [t for t in COR_TIPO if t in todos] + sorted(todos - set(COR_TIPO)):
+            st.markdown(f"{_ponto(COR_TIPO.get(t, [120, 120, 120]))}**{t}**: {O_QUE_E.get(t, '')}", unsafe_allow_html=True)
 
     st.subheader("Cartões dos serviços")
     if f.empty:
